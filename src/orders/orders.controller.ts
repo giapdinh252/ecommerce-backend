@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import * as orderService from "../services/order.service";
+import * as orderService from "../orders/orders.service";
 import { successResponse } from "../helper/responseHelper";
 
 export const checkout = async (req: Request, res: Response) => {

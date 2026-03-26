@@ -1,5 +1,5 @@
 import { pool } from "../config/database"; // Giả sử bạn đã setup file config kết nối db
-import { User } from "../model/User.model";
+import { User } from "./users.model";
 
 export const getAllUsers = async (): Promise<User[]> => {
   const result = await pool.query(

@@ -1,11 +1,11 @@
 import express from "express";
 import type { Request, Response } from "express";
 import cors from "cors";
-import userRoute from "./routes/userRoute.route";
-import productRoute from "./routes/product.route";
-import categoriesRoute from "./routes/categories.route";
-import orderRoute from "./routes/order.route";
-import uploadImg from "./routes/product.route";
+import userRoute from "./users/user.route";
+import productRoute from "./products/products.route";
+import categoriesRoute from "./categorys/category.route";
+import orderRoute from "./orders/orders.route";
+import uploadImg from "./products/products.route";
 import { config } from "../src/config/index";
 const app = express();
 app.use(cors());

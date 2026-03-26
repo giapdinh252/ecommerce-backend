@@ -1,6 +1,7 @@
 import { pool } from "../config/database";
-import { successResponse } from "../helper/responseHelper";
-import { ProductDetail } from "../model/Product.model";
+import { IpaginationOptions } from "../utils/types/pagination-option";
+import { handleUploadToCloud } from "./products.controller";
+import { ProductDetail } from "./products.model";
 
 export const getDetailProduct = async (
   id: number,
@@ -55,24 +56,30 @@ LIMIT 8;
   return result.rows;
 };
 
-export const getNewProducts = async () => {
+export const getNewProducts = async (options: IpaginationOptions) => {
+  const { page, limit } = options;
+  const offset = (page - 1) * limit;
   const query = `
-  SELECT p.product_id, p.name , p.slug, p.created_at, p.min_price,pi.url
-FROM products p
-JOIN product_variants pv ON p.product_id = pv.product_id
-join product_images pi ON pv.variant_id = pi.variant_id
-Where pi.is_main = 'true'
-GROUP BY p.product_id,pi.url
-ORDER BY p.created_at DESC
-LIMIT 8;
+    SELECT p.product_id, p.name, p.slug, p.created_at, p.min_price, pi.url
+    FROM products p
+    JOIN product_variants pv ON p.product_id = pv.product_id
+    JOIN product_images pi ON pv.variant_id = pi.variant_id
+    WHERE pi.is_main = 'true'
+    GROUP BY p.product_id, pi.url, p.name, p.slug, p.created_at, p.min_price
+    ORDER BY p.created_at DESC
+    LIMIT $1 OFFSET $2;
   `;
-  const result = await pool.query(query);
+
+  // Truyền giá trị vào mảng params để tránh SQL Injection
+  const values = [limit, offset];
+
+  const result = await pool.query(query, values);
   return result.rows;
 };
 
 export const getAttributeProducts = async () => {
   const query = `
-  SELECT 
+ SELECT 
         p.product_id,
         p.name, 	
         p.slug,
@@ -83,9 +90,11 @@ export const getAttributeProducts = async () => {
 	Join product_images pi ON pi.product_id = p.product_id
 	Join variant_attribute_values vav ON pv.variant_id = vav.variant_id
 	Join attribute_values av ON av.value_id = vav.value_id 
-    WHERE av.value_name = $1
+    WHERE av.value_name ='128GB'
     GROUP BY p.product_id , pi.url;
   `;
+  const result = await pool.query(query);
+  return result.rows;
 };
 
 export const createProduct = async (product: any) => {
@@ -141,11 +150,12 @@ export const createProduct = async (product: any) => {
         }
       }
       for (const image of variant.images) {
+        const img = handleUploadToCloud(image.url);
         const imageResult = await client.query(
           `INSERT INTO product_images
     (product_id, variant_id, is_main, url)
     VALUES ($1,$2,$3,$4)`,
-          [product_id, variant_id, image.is_main, image.url],
+          [product_id, variant_id, image.is_main, img],
         );
         currentVariant.image.push(imageResult);
       }

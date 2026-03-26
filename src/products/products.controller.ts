@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import * as productService from "../services/product.service";
+import * as productService from "./products.service";
 import { uploadImageToCloudinary } from "../services/uploadImage";
 import { successResponse } from "../helper/responseHelper";
 
@@ -7,7 +7,7 @@ export const getProducts = async (req: Request, res: Response) => {
   try {
     const id = Number(req.query.id);
     let products;
-    products = await productService.getDetailProduct(id);
+    products = await productService.getNewProducts(req.body);
     res.json(products);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -22,6 +22,10 @@ export const addProduct = async (req: Request, res: Response) => {
     res.status(400).json({ message: error.message });
   }
 };
+export const handleUploadToCloud = async (filePath: string) => {
+  const imageUrl = await uploadImageToCloudinary(filePath);
+  return imageUrl;
+};
 export const uploadImage = async (req: Request, res: Response) => {
   try {
     const file = req.file;
@@ -32,10 +36,7 @@ export const uploadImage = async (req: Request, res: Response) => {
 
     const imageUrl = await uploadImageToCloudinary(file.path);
 
-    res.json({
-      message: "Upload successful",
-      url: imageUrl,
-    });
+    return imageUrl;
   } catch (error) {
     res.status(500).json({ error });
   }

@@ -1,5 +1,5 @@
 import { pool } from "../config/database";
-import { Order, OrderItem } from "../model/Order.model";
+import { Order, OrderItem } from "./orders.model";
 
 export const createOrder = async (
   orderData: Order,
