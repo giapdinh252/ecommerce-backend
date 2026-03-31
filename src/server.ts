@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import cors from "cors";
 import userRoute from "./users/user.route";
 import productRoute from "./products/products.route";
-import categoriesRoute from "./categorys/category.route";
+import categoriesRoute from "./categories/categories.route";
 import orderRoute from "./orders/orders.route";
 import uploadImg from "./products/products.route";
 import { config } from "../src/config/index";

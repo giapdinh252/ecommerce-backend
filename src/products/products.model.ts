@@ -1,9 +1,10 @@
 export interface Product {
   product_id?: number;
-  category_id: number;
   name: string;
+  slug:string;
   description?: string;
-  base_price: number;
+  min_price: number;
+  url:string;
   created_at?: Date;
 }
 

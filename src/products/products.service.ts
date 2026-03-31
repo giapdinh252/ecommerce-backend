@@ -4,7 +4,7 @@ import { handleUploadToCloud } from "./products.controller";
 import { ProductDetail } from "./products.model";
 
 export const getDetailProduct = async (
-  id: number,
+  slug: string,
 ): Promise<ProductDetail | null> => {
   const query = `
     SELECT 
@@ -23,60 +23,142 @@ export const getDetailProduct = async (
         ) AS variants
     FROM products p
     JOIN product_variants pv ON p.product_id = pv.product_id
-    WHERE p.product_id = $1
+    WHERE p.slug = $1
     GROUP BY p.product_id;
   `;
 
   try {
-    const result = await pool.query(query, [id]);
+    const result = await pool.query(query, [slug]);
 
     if (result.rows.length === 0) return null;
-
-    return result.rows[0]; // Trả về object đầu tiên vì ID là duy nhất
+    return result.rows[0];
   } catch (error) {
     console.error("Error fetching product detail:", error);
     throw error;
   }
 };
 
-export const getProductsByBrand = async (brand: number) => {
-  const query = ` 
-    SELECT p.product_id, p.name , p.slug, p.created_at, p.min_price,pi.url
-FROM products p
-JOIN product_variants pv ON p.product_id = pv.product_id
-join product_images pi ON pv.variant_id = pi.variant_id
-JOIN brands b ON b.brand_id = p.brand_id
-Where pi.is_main = 'true' and b.brand_id= $1
-GROUP BY p.product_id,pi.url
-ORDER BY p.created_at DESC
-LIMIT 8;
-  `;
+// export const getProductsByBrand = async (brand: number) => {
+//   const query = `
+//     SELECT p.product_id, p.name , p.slug, p.created_at, p.min_price,pi.url
+// FROM products p
+// JOIN product_variants pv ON p.product_id = pv.product_id
+// join product_images pi ON pv.variant_id = pi.variant_id
+// JOIN brands b ON b.brand_id = p.brand_id
+// Where pi.is_main = 'true' and b.brand_id= $1
+// GROUP BY p.product_id,pi.url
+// ORDER BY p.created_at DESC
+// LIMIT 8;
+//   `;
 
-  const result = await pool.query(query, [brand]);
-  return result.rows;
-};
+//   const result = await pool.query(query, [brand]);
+//   return result.rows;
+// };
 
+// export const getNewProducts = async (options: IpaginationOptions) => {
+//   const { page, limit } = options;
+//   const offset = (page - 1) * limit;
+//   const query = `
+//     SELECT p.product_id, p.name, p.slug, p.created_at, p.min_price, pi.url
+//     FROM products p
+//     JOIN product_variants pv ON p.product_id = pv.product_id
+//     JOIN product_images pi ON pv.variant_id = pi.variant_id
+//     WHERE pi.is_main = 'true'
+//     GROUP BY p.product_id, pi.url, p.name, p.slug, p.created_at, p.min_price
+//     ORDER BY p.created_at DESC
+//     LIMIT $1 OFFSET $2;
+//   `;
+//   const values = [limit, offset];
+
+//   const result = await pool.query(query, values);
+//   return result.rows;
+// };
 export const getNewProducts = async (options: IpaginationOptions) => {
-  const { page, limit } = options;
+  const {
+    page,
+    limit,
+    searchText,
+    category,
+    brand,
+    minPrice,
+    maxPrice,
+    filters,
+    sortBy,
+    sortDesc,
+  } = options;
+
   const offset = (page - 1) * limit;
+  let queryParams: any[] = [];
+  let whereClauses: string[] = [];
+
+  if (searchText) {
+    queryParams.push(`%${searchText}%`);
+    whereClauses.push(`p.name ILIKE $${queryParams.length}`);
+  }
+  if (category) {
+    queryParams.push(category);
+    whereClauses.push(`p.category_id =$${queryParams.length}`);
+  }
+  if (minPrice !== undefined) {
+    queryParams.push(minPrice);
+    whereClauses.push(`p.min_price >= $${queryParams.length}`);
+  }
+  if (maxPrice !== undefined) {
+    queryParams.push(maxPrice);
+    whereClauses.push(`p.min_price <= $${queryParams.length}`);
+  }
+  if (brand) {
+    queryParams.push(brand);
+    whereClauses.push(`p.brand_id =$${queryParams.length}`);
+  }
+
+  if (filters && Object.keys(filters).length > 0) {
+    Object.entries(filters).forEach(([key, value]) => {
+      const valuesArray = Array.isArray(value) ? value : [value];
+
+      queryParams.push(valuesArray);
+
+      whereClauses.push(`
+        EXISTS (
+           SELECT 1 
+           FROM product_variants pv
+           JOIN variant_attribute_values vav ON pv.variant_id = vav.variant_id
+           JOIN attribute_values av ON vav.value_id = av.value_id
+           WHERE pv.product_id = p.product_id 
+           AND av.value_name = ANY($${queryParams.length})
+        )
+      `);
+    });
+  }
+
+  const sortColumn = sortBy || "p.created_at";
+  const sortOrder = sortDesc ? "DESC" : "ASC";
+  const whereSql =
+    whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
   const query = `
-    SELECT p.product_id, p.name, p.slug, p.created_at, p.min_price, pi.url
-    FROM products p
-    JOIN product_variants pv ON p.product_id = pv.product_id
-    JOIN product_images pi ON pv.variant_id = pi.variant_id
-    WHERE pi.is_main = 'true'
-    GROUP BY p.product_id, pi.url, p.name, p.slug, p.created_at, p.min_price
-    ORDER BY p.created_at DESC
-    LIMIT $1 OFFSET $2;
+   SELECT 
+    p.product_id, 
+    p.name, 
+    p.slug, 
+    p.created_at, 
+    p.min_price, 
+   (   
+        SELECT pi.url 
+        FROM product_images pi 
+        WHERE pi.product_id = p.product_id AND pi.is_main = true 
+        LIMIT 1
+    )
+    FROM products p 
+    ${whereSql}
+    ORDER BY ${sortColumn} ${sortOrder}
+    LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2};
   `;
 
-  // Truyền giá trị vào mảng params để tránh SQL Injection
-  const values = [limit, offset];
-
+  const values = [...queryParams, limit, offset];
   const result = await pool.query(query, values);
   return result.rows;
 };
-
 export const getAttributeProducts = async () => {
   const query = `
  SELECT 
@@ -163,7 +245,6 @@ export const createProduct = async (product: any) => {
     }
 
     await client.query("COMMIT");
-
     return data;
   } catch (error) {
     await client.query("ROLLBACK");

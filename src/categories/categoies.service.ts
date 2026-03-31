@@ -1,5 +1,5 @@
 import { pool } from "../config/database";
-import { Categories } from "./category.model";
+import { Categories } from "./categories.model";
 
 export class CategoriesService {
   async getAllCategories(): Promise<Categories[]> {

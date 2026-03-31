@@ -13,7 +13,6 @@ export const config = {
   isDev: process.env.NODE_ENV === "development",
 };
 
-// Kiểm tra bảo mật: Nếu thiếu mật khẩu DB thì dừng app luôn để tránh lỗi khó hiểu sau này
 if (!config.db.password) {
   throw new Error("❌ Thiếu DB_PASSWORD trong file .env");
 }
