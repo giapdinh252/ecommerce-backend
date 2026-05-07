@@ -1,30 +1,56 @@
 import { pool } from "../config/database";
 import { IpaginationOptions } from "../utils/types/pagination-option";
 import { handleUploadToCloud } from "./products.controller";
-import { ProductDetail } from "./products.model";
+import { ProductDetail, ProductModel } from "./products.model";
 
 export const getDetailProduct = async (
   slug: string,
 ): Promise<ProductDetail | null> => {
   const query = `
-    SELECT 
+     SELECT 
         p.product_id,
         p.name, 
         p.slug,
         p.min_price,
+        c.slug AS category_slug,
+        (
+        SELECT image_url 
+        FROM product_images 
+        WHERE product_id = p.product_id AND is_main = true 
+        LIMIT 1
+        ),
+        (SELECT jsonb_agg(image_url) FROM product_images WHERE product_id = p.product_id) as images,
+         (
+        SELECT jsonb_object_agg(attr.attr_name, v_list)
+        FROM (
+            SELECT a.attr_name, jsonb_agg(DISTINCT av.value_name) as v_list
+            FROM variant_attribute_values vav
+            JOIN attribute_values av ON vav.value_id = av.value_id
+            JOIN attributes a ON av.attr_id = a.attr_id
+            JOIN product_variants pv ON vav.variant_id = pv.variant_id
+            WHERE pv.product_id = p.product_id
+            GROUP BY a.attr_name
+        ) attr
+    ) as filter_options,
         json_agg(
             json_build_object(
                 'variant_id', pv.variant_id,
                 'sku', pv.sku,
                 'price', pv.price,
-                'specs', pv.technical_specs,
-                'image', (SELECT url FROM product_images pi WHERE variant_id = pv.variant_id LIMIT 1)
+                'technical_specs',pv.technical_specs,
+                'option', ( SELECT jsonb_object_agg(a.attr_name, av.value_name)
+                    FROM variant_attribute_values vav
+                    JOIN attribute_values av ON vav.value_id = av.value_id
+                    JOIN attributes a ON av.attr_id = a.attr_id
+                    WHERE vav.variant_id = pv.variant_id),
+                'image', (SELECT image_url FROM product_images pi WHERE variant_id = pv.variant_id )
             )
         ) AS variants
     FROM products p
     JOIN product_variants pv ON p.product_id = pv.product_id
+    JOIN categories c ON p.category_id = c.category_id
     WHERE p.slug = $1
-    GROUP BY p.product_id;
+    GROUP BY p.product_id ,c.slug;
   `;
 
   try {
@@ -73,7 +99,7 @@ export const getDetailProduct = async (
 //   const result = await pool.query(query, values);
 //   return result.rows;
 // };
-export const getNewProducts = async (options: IpaginationOptions) => {
+export const getProducts = async (options: IpaginationOptions) => {
   const {
     page,
     limit,
@@ -135,21 +161,31 @@ export const getNewProducts = async (options: IpaginationOptions) => {
   const sortOrder = sortDesc ? "DESC" : "ASC";
   const whereSql =
     whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
-
+  const countQuery = `
+    SELECT COUNT(DISTINCT p.product_id) as total
+    FROM products p 
+    JOIN categories c ON p.category_id = c.category_id
+    ${whereSql}
+  `;
+  const countResult = await pool.query(countQuery, queryParams);
+  const totalItems = parseInt(countResult.rows[0].total);
   const query = `
    SELECT 
     p.product_id, 
     p.name, 
     p.slug, 
-    p.created_at, 
     p.min_price, 
+    c.slug AS category_slug,
    (   
-        SELECT pi.url 
+        SELECT pi.image_url 
         FROM product_images pi 
         WHERE pi.product_id = p.product_id AND pi.is_main = true 
         LIMIT 1
-    )
+    ),
+    p.created_at, 
+    p.updated_at
     FROM products p 
+    JOIN categories c ON p.category_id = c.category_id
     ${whereSql}
     ORDER BY ${sortColumn} ${sortOrder}
     LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2};
@@ -157,7 +193,17 @@ export const getNewProducts = async (options: IpaginationOptions) => {
 
   const values = [...queryParams, limit, offset];
   const result = await pool.query(query, values);
-  return result.rows;
+  const totalPages = Math.ceil(totalItems / limit);
+
+  return {
+    page: page,
+    itemsPerPage: limit,
+    totalItems: totalItems,
+    totalPages: totalPages,
+    hasPreviousPage: page > 1,
+    hasNextPage: page < totalPages,
+    data: result.rows,
+  };
 };
 export const getAttributeProducts = async () => {
   const query = `
@@ -179,7 +225,7 @@ export const getAttributeProducts = async () => {
   return result.rows;
 };
 
-export const createProduct = async (product: any) => {
+export const createProduct = async (product: ProductModel) => {
   const client = await pool.connect();
   let data: any = {};
   try {
@@ -188,7 +234,7 @@ export const createProduct = async (product: any) => {
     const productResult = await client.query(
       `INSERT INTO products (name, category_id,brand_id, description,slug)
        VALUES ($1,$2,$3,$4,$5)
-        RETURNING *
+       RETURNING *
        `,
       [
         product.name,
@@ -204,9 +250,9 @@ export const createProduct = async (product: any) => {
     for (const variant of product.variants) {
       const variantResult = await client.query(
         `INSERT INTO product_variants
-    (product_id, price,technical_specs, stock_quantity, sku)
-    VALUES ($1,$2,$3,$4,$5)
-    RETURNING variant_id`,
+         (product_id, price,technical_specs, stock_quantity, sku)
+         VALUES ($1,$2,$3,$4,$5)
+         RETURNING variant_id`,
         [
           product_id,
           variant.price,
@@ -232,18 +278,17 @@ export const createProduct = async (product: any) => {
         }
       }
       for (const image of variant.images) {
-        const img = handleUploadToCloud(image.url);
-        const imageResult = await client.query(
+        const img = await handleUploadToCloud(image.image_url);
+        await client.query(
           `INSERT INTO product_images
-    (product_id, variant_id, is_main, url)
-    VALUES ($1,$2,$3,$4)`,
+           (product_id, variant_id, is_main, image_url)
+            VALUES ($1,$2,$3,$4)`,
           [product_id, variant_id, image.is_main, img],
         );
-        currentVariant.image.push(imageResult);
+        currentVariant.images.push(img);
       }
       data.variants.push(currentVariant);
     }
-
     await client.query("COMMIT");
     return data;
   } catch (error) {

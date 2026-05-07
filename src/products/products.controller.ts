@@ -20,7 +20,7 @@ export const getProducts = async (req: Request, res: Response) => {
         ? JSON.parse(req.query.filters as string)
         : undefined,
     };
-    const products = await productService.getNewProducts(options);
+    const products = await productService.getProducts(options);
     successResponse(res, "Get Product Success !", 200, products);
   } catch (error: any) {
     res.status(500).json({ message: error.message });

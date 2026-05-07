@@ -2,14 +2,22 @@ import { Response } from "express";
 
 export const successResponse = (
   res: Response,
-  message: String,
+  message?: String,
   statusCode: number = 200,
   data: any = null,
 ) => {
-  res.status(statusCode).json({
+  if (data && typeof data === "object" && data.data) {
+    return res.status(statusCode).json({
+      success: true,
+      message,
+      ...data,
+    });
+  }
+
+  return res.status(statusCode).json({
     success: true,
     message,
-    data,
+    data: data,
   });
 };
 
